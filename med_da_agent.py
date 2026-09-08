@@ -14,6 +14,8 @@ import arxiv
 from openai import OpenAI
 from dotenv import load_dotenv
 
+import subprocess  # <--- 新增这一行，用于执行系统命令
+
 # 1. 加载环境变量
 load_dotenv()
 
@@ -141,6 +143,9 @@ def search_arxiv(query, max_results=10, days=3):
     except Exception as e:
         logger.error(f"arXiv 检索失败: {e}")
         # 如果发生错误，返回已收集的部分结果（由 retry 装饰器决定是否重试）
+    
+    # 🌟 新增：透明化过滤结果，让你知道到底发生了什么
+    logger.info(f"API 原始返回了数据，但经过最近 {days} 天的时间过滤后，剩余 {len(papers)} 篇。")
         
     return papers
 
@@ -270,12 +275,13 @@ def main():
     parser.add_argument('--output', type=str, default='daily_paper_report.md', help='输出报告文件名')
     parser.add_argument('--model', type=str, default=DEFAULT_MODEL, help='大模型名称（默认从环境变量读取）')
     parser.add_argument('--max_workers', type=int, default=1, help='并行分析的最大线程数（默认1）')
+    parser.add_argument('--skip_push', action='store_true', help='仅本地生成报告，不推送到 GitHub')
     args = parser.parse_args()
 
     logger.info("🚀 MedDA-Agent 启动，正在检索 arXiv...")
     query = (
-        '("domain adaptation" OR "domain generalization" OR "unsupervised adaptation") '
-        'AND ("medical image" OR "medical imaging" OR "MRI" OR "CT" OR "ultrasound" OR "pathology")'
+        '("domain adaptation" OR "domain generalization" OR "cross-domain" OR "unsupervised") '
+    'AND ("medical" OR "MRI" OR "CT" OR "ultrasound" OR "pathology" OR "histology")'
     )
 
     papers = search_arxiv(query, max_results=args.max_results, days=args.days)
@@ -290,10 +296,34 @@ def main():
     logger.info("📝 正在生成简报...")
     report = generate_report(papers_analysis)
 
+    # ... 前面的代码：保存 report 到 args.output ...
     with open(args.output, "w", encoding="utf-8") as f:
         f.write(report)
-
     logger.info(f"✅ 任务完成！简报已保存为: {args.output}")
+
+    # ==========================================
+    # 🚀 新增：自动推送到 GitHub (除非使用了 --skip_push 参数)
+    # ==========================================
+    if not args.skip_push:
+        logger.info("📤 正在将最新报告推送到 GitHub，让学生们围观...")
+        try:
+            today_str = datetime.now().strftime("%Y-%m-%d")
+               
+            # 1. 添加修改的文件 (报告文件和可能的代码修改)
+            subprocess.run(['git', 'add', args.output], check=True, capture_output=True)
+               
+            # 2. 提交更改 (使用日期作为 commit message)
+            subprocess.run(['git', 'commit', '-m', f'🤖 Auto-update daily report: {today_str}'], check=True, capture_output=True)
+               
+            # 3. 推送到远程
+            subprocess.run(['git', 'push'], check=True, capture_output=True)
+               
+            logger.info("🎉 成功推送到 GitHub！")
+        except subprocess.CalledProcessError as e:
+            # 如果今天已经推送过，或者没有新更改，git commit 会报错，这是正常的，用 warning 提示即可
+            logger.warning(f"⚠️ Git 推送跳过或失败 (可能是今天已更新或无新内容): {e}")
+        except FileNotFoundError:
+            logger.error("❌ 找不到 git 命令，请确保系统已安装 Git。")
     logger.info("💡 提示：在 VS Code 中打开该文件，点击右上角的 '打开预览' 图标即可查看美观的排版。")
 
 

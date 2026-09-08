@@ -1,4 +1,4 @@
    .env
    __pycache__/
    *.pyc
-   daily_paper_report.mds
+   test_proxy.py
