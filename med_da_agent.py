@@ -272,7 +272,7 @@ def main():
     parser = argparse.ArgumentParser(description="MedDA-Agent: 医学图像跨域自适应论文智能分析助手")
     parser.add_argument('--max_results', type=int, default=15, help='检索论文的最大数量（默认15）')
     parser.add_argument('--days', type=int, default=7, help='只处理最近几天内提交的论文（默认7天）')
-    parser.add_argument('--output', type=str, default='daily_paper_report.md', help='输出报告文件名')
+    parser.add_argument('--output', type=str, default='README.md', help='输出报告文件名')
     parser.add_argument('--model', type=str, default=DEFAULT_MODEL, help='大模型名称（默认从环境变量读取）')
     parser.add_argument('--max_workers', type=int, default=1, help='并行分析的最大线程数（默认1）')
     parser.add_argument('--skip_push', action='store_true', help='仅本地生成报告，不推送到 GitHub')
@@ -294,37 +294,54 @@ def main():
     papers_analysis = analyze_papers_parallel(papers, model=args.model, max_workers=args.max_workers)
 
     logger.info("📝 正在生成简报...")
+        # ... 前面的代码：生成 report 字符串保持不变 ...
     report = generate_report(papers_analysis)
-
-    # ... 前面的代码：保存 report 到 args.output ...
-    with open(args.output, "w", encoding="utf-8") as f:
-        f.write(report)
-    logger.info(f"✅ 任务完成！简报已保存为: {args.output}")
-
+    
     # ==========================================
-    # 🚀 新增：自动推送到 GitHub (除非使用了 --skip_push 参数)
+    # 🚀 新增：将新简报追加到 README.md 顶部，并自动推送
     # ==========================================
     if not args.skip_push:
-        logger.info("📤 正在将最新报告推送到 GitHub，让学生们围观...")
+        logger.info("📤 正在更新 README.md 并推送到 GitHub...")
+        readme_path = "README.md"
+        
         try:
+            # 1. 读取旧的 README 内容 (如果存在)
+            old_readme_content = ""
+            if os.path.exists(readme_path):
+                with open(readme_path, "r", encoding="utf-8") as f:
+                    old_readme_content = f.read()
+            
+            # 2. 拼接新内容：新简报在最上面，旧内容在下面
             today_str = datetime.now().strftime("%Y-%m-%d")
-               
-            # 1. 添加修改的文件 (报告文件和可能的代码修改)
-            subprocess.run(['git', 'add', args.output], check=True, capture_output=True)
-               
-            # 2. 提交更改 (使用日期作为 commit message)
-            subprocess.run(['git', 'commit', '-m', f'🤖 Auto-update daily report: {today_str}'], check=True, capture_output=True)
-               
-            # 3. 推送到远程
+            final_content = (
+                f"# 📅 最新简报: {today_str}\n\n" + 
+                report + 
+                "\n\n---\n\n*📜 历史简报存档见下方*\n\n" + 
+                old_readme_content
+            )
+            
+            # 3. 覆盖写入 README.md
+            with open(readme_path, "w", encoding="utf-8") as f:
+                f.write(final_content)
+            logger.info(f"✅ 本地 README.md 更新成功！")
+
+            # 4. 自动执行 Git 推送
+            subprocess.run(['git', 'add', readme_path], check=True, capture_output=True)
+            subprocess.run(['git', 'commit', '-m', f'🤖 Auto-update README: {today_str}'], check=True, capture_output=True)
             subprocess.run(['git', 'push'], check=True, capture_output=True)
-               
-            logger.info("🎉 成功推送到 GitHub！")
+            
+            logger.info("🎉 成功推送到 GitHub！学生们现在可以直接在主页看到最新简报了！")
+            
         except subprocess.CalledProcessError as e:
-            # 如果今天已经推送过，或者没有新更改，git commit 会报错，这是正常的，用 warning 提示即可
             logger.warning(f"⚠️ Git 推送跳过或失败 (可能是今天已更新或无新内容): {e}")
-        except FileNotFoundError:
-            logger.error("❌ 找不到 git 命令，请确保系统已安装 Git。")
-    logger.info("💡 提示：在 VS Code 中打开该文件，点击右上角的 '打开预览' 图标即可查看美观的排版。")
+        except Exception as e:
+            logger.error(f"❌ 更新或推送 README 时发生错误: {e}")
+    else:
+        # 如果使用了 --skip_push，则退回到只保存为普通 md 文件的逻辑
+        output_file = args.output if args.output != 'README.md' else 'daily_paper_report_backup.md'
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(report)
+        logger.info(f"✅ 任务完成！简报已本地保存为: {output_file} (未推送)")
 
 
 if __name__ == "__main__":
